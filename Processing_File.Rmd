@@ -172,6 +172,96 @@ wide_mz_i <- ES_names %>%
 
 ```
 
+Next, we parse the common losses in a similar manner.
+
+```{r}
+
+unique_names = unique(ES_table_trimmed$Name)
+
+x = seq(1, 5, 1)
+y = x
+
+d2 <- expand.grid(x = x, y = y, KEEP.OUT.ATTRS = FALSE)
+d2 <- d2 %>% 
+  filter(y > x)
+
+xt = d2$x
+
+yt = d2$y
+
+names_losses = as.character(rep(unique_names, each = length(d2$x)))
+losses_vec = rep(999, times = length(names_losses))
+loss_num = rep(seq(1, 10, 1), times = length(unique_names))
+
+losses <- data.frame(names_losses, losses_vec, loss_num)
+losses = losses %>% 
+  dplyr::mutate(names_losses = as.character(names_losses))
+
+
+
+for(i in 1:nrow(losses)) {
+  #i = 1
+  
+  name_t = names_losses[i]
+  loss_num_t = losses$loss_num[i]
+  
+  upper_index = xt[loss_num_t]
+  lower_index = yt[loss_num_t]
+  
+  df_t = ES_table_trimmed %>% 
+    filter(Name == name_t)
+  
+  upper_mz = df_t$mz[upper_index]
+  lower_mz = df_t$mz[lower_index]
+  
+
+  losses$losses_vec[i] = abs(upper_mz - lower_mz)
+  
+}
+
+arranged_mz <- ES_table_trimmed %>% 
+  arrange(desc(mz)) %>% 
+  arrange(desc(Name)) %>% 
+  dplyr::mutate(loss_fast = 0)
+
+for(i in 2:nrow(arranged_mz)){
+  arranged_mz$loss_fast[i]= arranged_mz$mz[i-1]-arranged_mz$mz[i]
+}
+
+arranged_mz.t <- as.data.frame(table(arranged_mz$loss_fast)) %>% 
+  dplyr::mutate(num_loss = as.character(Var1)) %>% 
+  dplyr::mutate(num_loss = as.numeric(num_loss)) %>% 
+  filter(num_loss > 0) %>% 
+  arrange(desc(Freq)) %>% 
+  dplyr::mutate(id = row_number())
+
+losses = losses %>%
+  left_join(arranged_mz.t, by = c("losses_vec"= "num_loss"))
+
+losses_trimmed = losses %>% 
+  filter(id<21) 
+
+
+
+ES_common_losses = losses_trimmed %>%
+  dplyr::select(names_losses, losses_vec) %>% 
+  dplyr::mutate(losses_vec = paste("loss_", losses_vec, sep = "_")) %>% 
+  dplyr::mutate(Loss_obs = TRUE) %>% 
+  distinct()
+
+loss_list.es <- ES_common_losses %>% 
+  dplyr::select(losses_vec) %>% 
+  dplyr::mutate(istop20 = TRUE) %>% 
+  distinct(losses_vec, istop20, .keep_all = TRUE)
+
+wide_losses = ES_common_losses %>% 
+  spread(losses_vec, Loss_obs, fill = FALSE) %>% 
+  right_join(ES_names, by = c("names_losses"= "Name"))
+
+wide_losses[is.na(wide_losses)] <- FALSE
+```
+
+
 ## Importing all of the Blob Table Index
 
 Each point of each of the 5 calibration curves is saved as a blob table file containing the abundance of each of the external standard compounds in that sample run (aka cal curve point).  In order to read in these files with the necessary general information on what day the cal curve occurred and what point of the cal curve each run corresponds to, an index is read in with the file names and additional information.  
@@ -824,7 +914,9 @@ real_cc_withRI %>% ggplot(aes(x = cpnd, y = slope))+
 real_cc_avg <- real_cc %>% 
   group_by(cpnd) %>% 
   dplyr::summarise(slope.avg = mean(slope, na.rm = TRUE)) %>% 
-  left_join(names_RI, by= c("cpnd"= "Name"))
+  left_join(names_RI, by= c("cpnd"= "Name")) %>% 
+  mutate(inverse_slope = 1/slope.avg) %>% 
+  dplyr::rename(Compound.Name = cpnd)
 
 real_cc_avg %>% 
   ggplot(aes(x = d_alkane_RTI, y = 1/slope.avg))+
@@ -832,6 +924,209 @@ real_cc_avg %>%
 
 
 ```
+
+```{r}
+
+cat <- read_csv("Files/Compound_cat_ES_SS.csv") %>% 
+  left_join(ES_table_o, by =c("Compound.Name"= "Name") )
+
+seed <- 1:20000
+dalk_pctdif <- 1:20000
+rt2_pctdif <- 1:20000
+
+Seed <- data.frame(seed, dalk_pctdif, rt2_pctdif)
+
+
+
+for(i in 1:nrow(Seed)){
+  #i = 1000
+  set.seed(Seed$seed[i])
+  split.t = sample.split(cat$Category, SplitRatio = 0.8)
+
+
+  Cat.train.t <- filter(cat, split.t == TRUE) 
+  
+    
+  
+  
+  Cat.test.t <- filter(cat, split.t == FALSE)%>%
+    arrange(Compound.Name)
+  
+  
+  Seed$dalk_pctdif[i]= abs(mean(Cat.train.t$d_alkane_RTI, na.rm = TRUE)-
+                             mean(Cat.test.t$d_alkane_RTI, na.rm = TRUE))/
+                      mean(Cat.train.t$d_alkane_RTI, na.rm = TRUE)
+  
+  Seed$rt2_pctdif[i]= abs(mean(Cat.train.t$RT2, na.rm = TRUE)-
+                             mean(Cat.test.t$RT2, na.rm = TRUE))/
+                      mean(Cat.train.t$RT2, na.rm = TRUE)
+  
+  
+}
+
+Seed <- Seed %>% 
+  dplyr::mutate(mult.diff = dalk_pctdif*rt2_pctdif) %>% 
+  dplyr::mutate(sum.diff = dalk_pctdif+rt2_pctdif) 
+
+set.seed(2019)
+split.f = sample.split(cat$Category, SplitRatio = 0.8)
+
+
+Cat.train <- filter(cat, split.f == TRUE) 
+  
+    
+Cat.test <- filter(cat, split.f == FALSE)
+
+```
+Now plotting the slopes of compounds visualized by their compound categories
+```{r}
+cat.j <- cat %>% 
+  dplyr::select(Compound.Name, Category)
+
+real_cc_avg.c <- real_cc_avg %>% 
+  left_join(cat.j)
+
+write.csv(real_cc_avg.c, "Files/CC_slopes_categories_for_curve.csv")
+
+real_cc_avg %>% 
+  left_join(cat) %>% 
+  ggplot(aes(x = d_alkane_RTI, y = inverse_slope, color = Category))+
+  geom_point()
+
+
+```
+Correcting by the average volatility curve
+
+```{r}
+Cat.ms.all.q <- cat %>% 
+  dplyr::select(Compound.Name, Formula, Category, d_alkane_RTI, RT2) %>% 
+  left_join(wide_mz_i, by = c("Compound.Name" = "Name")) %>% 
+  left_join(wide_losses, by = c("Compound.Name" = "names_losses")) %>% 
+  left_join(real_cc_avg) %>% 
+  dplyr::mutate(RTI.transform = NA) %>% 
+  filter(!is.na(d_alkane_RTI)) # note that this removes C7 acid from analysis
+  
+ 
+for(i in 1:nrow(Cat.ms.all.q)){
+  lri = Cat.ms.all.q$d_alkane_RTI[i]
+  if(lri<1900){
+    Cat.ms.all.q$RTI.transform[i] = (0.0342*exp(0.0059*lri))
+  }else{
+    Cat.ms.all.q$RTI.transform[i] = (-1.3*lri+4987)
+  }
+}
+
+
+Cat.ms.all.q <- Cat.ms.all.q %>% 
+  dplyr::mutate(slope.i.q = (1/slope.avg)/RTI.transform)
+
+Cat.ms.all.q %>% 
+  ggplot(aes(x = d_alkane_RTI, y = slope.i.q, color = Category))+
+  geom_point()
+
+Cat.ms.all.q.rti <- Cat.ms.all.q %>% 
+  dplyr::select(d_alkane_RTI, RTI.transform, Category) %>% 
+  arrange(desc(d_alkane_RTI)) %>% 
+  distinct()
+
+normc <- Cat.ms.all.q.rti %>% 
+  ggplot(aes(x = d_alkane_RTI, y = RTI.transform, color = "Response \nNormalization Curve"))+
+  geom_line(size = 2)+
+  geom_point(data = Cat.ms.all.q, aes(x = d_alkane_RTI, y = 1/slope.avg, fill = Category), shape = 21)+
+  geom_line(aes(x = d_alkane_RTI, y = RTI.transform), color = "black", size = 2)+
+  xlab("Retention Index")+
+  ylab("Response Factor")+
+  scale_color_manual(name = "", values = "black")+
+  scale_fill_brewer(name = "Compound Class", palette="Set1")+
+  theme_bw(base_size = 14)
+
+normc
+
+# png("normcurve.png", width=7.5, height=4,
+#     units="in", res=1000, pointsize=5)
+# normc
+# dev.off()  
+
+
+Cat.ms.all.q.mod <- Cat.ms.all.q 
+
+```
+Next we split into the training and test sets
+```{r}
+Cat.test.n <- Cat.test %>% 
+  dplyr::select(Compound.Name) %>% 
+  dplyr::mutate(tag = TRUE)
+
+Cat.train.n <- Cat.train %>% 
+  dplyr::select(Compound.Name) %>% 
+  dplyr::mutate(tag = TRUE)
+
+Quant.mod.train <- Cat.ms.all.q.mod %>% 
+  left_join(Cat.train.n) %>% 
+  filter(tag == TRUE) %>% 
+  dplyr::select(-tag) %>% 
+  filter(!is.na(slope.i.q))
+
+Quant.mod.test <- Cat.ms.all.q.mod %>% 
+  left_join(Cat.test.n) %>% 
+  filter(tag == TRUE)%>% 
+  dplyr::select(-tag)%>% 
+  filter(!is.na(slope.i.q))
+
+```
+```{r}
+Quant.mod.test.t <- Quant.mod.test %>% 
+  dplyr::select(-c("Compound.Name", "Formula", "Category", 
+                   "slope.avg", "RTI.transform", "inverse_slope"))
+
+Quant.mod.train.t <- Quant.mod.train %>% 
+  dplyr::select(-c("Compound.Name", "Formula", "Category", 
+                   "slope.avg", "RTI.transform", "inverse_slope"))
+
+set.seed(144)
+train.rf = train(slope.i.q ~., data = Quant.mod.train.t, method = "rf", tuneGrid = data.frame(mtry=seq(1, 30, 1)), trControl = trainControl(method = "cv", number = 5), metric = "Rsquared", na.action = na.exclude)
+
+best.rf.quant = train.rf$finalModel
+best.rf.quant
+
+rf.plot <- ggplot(train.rf$results, aes(x=mtry, y=Rsquared)) + geom_line(lwd=2) +
+  ylab("R Squared of Predictions")
+rf.plot
+
+Cat.mm = as.data.frame(model.matrix(slope.i.q ~., data = Quant.mod.test.t))
+
+set.seed(144)
+pred.best.rf = predict(best.rf.quant, newdata = Cat.mm, type = "class")
+
+Quant.mod.test.t.2 <- Quant.mod.test.t
+
+Quant.mod.test.t.2$Compound.Name <- Quant.mod.test$Compound.Name
+
+Quant.mod.test.t.2$Category <- Quant.mod.test$Category
+
+Quant.mod.test.t.2$RTI.transform <- Quant.mod.test$RTI.transform
+
+Quant.mod.test.t.2$slope.avg <- Quant.mod.test$slope.avg
+Quant.mod.test.t.2$slope.i.q.p <- pred.best.rf
+
+
+Quant.mod.test.t.2 <- Quant.mod.test.t.2 %>% 
+  dplyr::mutate(slope.avg.p = 1/(slope.i.q.p*RTI.transform)) %>% 
+  dplyr::mutate(slope_pct_err = 100*(slope.avg.p-slope.avg)/slope.avg) %>% 
+  dplyr::mutate(slope_pct_err.a = abs(slope_pct_err))
+
+Quant.mod.test.t.2 %>% 
+  ggplot(aes(slope_pct_err))+
+  geom_histogram()
+
+summary(Quant.mod.test.t.2$slope_pct_err)
+summary(Quant.mod.test.t.2$slope_pct_err.a)
+
+prob.inspect <- Quant.mod.test.t.2 %>% 
+  filter(slope_pct_err > 100 | slope_pct_err < -50) %>% 
+  dplyr::select(Compound.Name, Category, d_alkane_RTI, RT2, slope_pct_err)
+```
+
 
 ## R Markdown
 
