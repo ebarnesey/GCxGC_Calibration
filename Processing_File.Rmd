@@ -1125,8 +1125,30 @@ summary(Quant.mod.test.t.2$slope_pct_err.a)
 prob.inspect <- Quant.mod.test.t.2 %>% 
   filter(slope_pct_err > 100 | slope_pct_err < -50) %>% 
   dplyr::select(Compound.Name, Category, d_alkane_RTI, RT2, slope_pct_err)
-```
 
+Quant.mod.test.t.2 %>% 
+  ggplot(aes(x = d_alkane_RTI, y = slope_pct_err, color = Category))+
+  geom_point()
+
+Quant.mod.test.t.2 %>% 
+  ggplot(aes(x = slope.avg, y = slope.avg.p, color = slope_pct_err))+
+  geom_point()
+
+Quant.mod.test.t.2 %>% 
+  ggplot(aes(x = slope.i.q, y = slope.i.q.p, color = slope_pct_err))+
+  geom_point()
+
+Quant.mod.test.t.3 <- Quant.mod.test.t.2 %>% 
+  filter(d_alkane_RTI > 1500)
+
+mae(Quant.mod.test.t.3$slope.avg, Quant.mod.test.t.3$slope.avg.p)
+#dont know why this is returning NA
+OSR2(Quant.mod.test.t.3$slope.avg.p, Quant.mod.train$slope.avg,
+     Quant.mod.test.t.3$slope.avg)
+
+
+```
+# Now loading the sample compounds to see if restricting to > 1500 will be acceptable
 
 ## R Markdown
 
