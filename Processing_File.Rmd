@@ -336,17 +336,20 @@ ES_lib_name <- "caice_sse"
 
 IS_rem1 <- "glucose-13C6"
 IS_rem2 <- "dC14"
+IS_rem3 <- "d-C6diacid"
 
 
 # fixing naming problems for dC14 nd removing glucose (because it is a bad IS)
 M_t_full <- M_t_full %>% 
   mutate(Library.Name = ifelse(Library.Name == "-", IS_lib_name, Library.Name)) %>% 
   filter(Compound.Name != IS_rem1) %>% 
-  filter(Compound.Name != IS_rem2)
+  filter(Compound.Name != IS_rem2) %>% 
+  filter(Compound.Name != IS_rem3)
 
 
 
-rt2_floor <- .5 # note: check on this, but for purposes of indexing retention times in 2d this is important
+rt2_floor <- .2 # note: check on this, but for purposes of indexing retention times in 2d this is important
+# note this has been changed, was .5 before
 
 # creating a column of the differences in linear retention indecies so that poor matches can be screened out
 M_t_LRI <- M_t_full %>% dplyr::mutate(LRI_diff = abs(Library.RI-LRI.I)) 
@@ -355,7 +358,10 @@ M_t_LRI <- M_t_full %>% dplyr::mutate(LRI_diff = abs(Library.RI-LRI.I))
 IS_goodmatch <- M_t_LRI %>% 
   filter(Library.Name == IS_lib_name) %>% 
   filter(LRI_diff < LRI_diff_floor-5) %>% 
-  filter(Library.Match.Factor > Match_factor_floor-50)# down adjusting LRI match factor due to some misses of good matches 
+  filter(Library.Match.Factor > Match_factor_floor-100)# down adjusting LRI match factor due to some misses of good matches 
+
+perylene_check <- M_t_LRI %>% 
+  filter(Compound.Name == "perylene-d")
 
 IS_check <- M_t_LRI %>% 
   filter(Library.Name == IS_lib_name) %>% 
@@ -483,6 +489,10 @@ IS_unique <- IS_goodmatch %>%
   group_by(Compound.Name, File_num) %>% 
   summarise(Volume_tot = sum(Volume))
 
+table(IS_unique$Compound.Name)
+
+perylene_check <- IS_goodmatch %>% 
+  filter(Compound.Name == "perylene-d")
 
 fixing <- data.frame(table(IS_unique$Compound.Name)) %>% 
   dplyr::mutate(Compound.Name = Var1)
@@ -494,6 +504,7 @@ IS_positions <- IS_goodmatch %>%
   #summarise(LRI_avg = mean(LRI.I), RI2 = min(Retention.II..sec.-rt2_floor))
   dplyr::summarise(LRI_avg = mean(LRI.I), RI2 = min(abs(Retention.II..sec. - rt2_floor)))
 
+table(IS_positions$Compound.Name)
 
 IS_avg_vols_toadd <- IS_unique %>% 
   dplyr::group_by(Compound.Name) %>% 
@@ -516,7 +527,7 @@ IS_1_vol <- IS_test1$Volume_tot
 RI1 <- IS_test1$LRI_avg
 RI2 <- IS_test1$RI2
 
-write.csv(IS_positions, "Files/IS_positions_ESmod.csv")
+write.csv(IS_positions, "Files/Write/IS_positions_ESmod_SS.csv")
 
 # IS_1_pos <- IS_test1 %>% 
 #   ungroup() %>% 
@@ -527,7 +538,7 @@ IS_positions_avg <- IS_positions %>%
   dplyr::summarise(LRI_avg_all = mean(LRI_avg, na.rm = TRUE), RI2_all = mean(RI2, na.rm = TRUE)) 
 
 
-write.csv(IS_positions_avg, "Files/IS_positions_avg_ESmod.csv")
+write.csv(IS_positions_avg, "Files/Write/IS_positions_avg_ESmod_SS.csv")
 
 IS_mean_med_sample <- read_csv("Files/IS_mean_med_vols_SSAbloom3_samples.csv")
 
@@ -546,7 +557,7 @@ IS_avg_vols <- IS_unique %>%
 # Normalizing cal points by the average of the nearest 3 internal standard compounds (self normalized)
 
 ```{r IS_mapping2}
-LRI_weight = 10 
+LRI_weight = 10 # note changed from 2 
 LRII_weight = 1
 
 LRI1_avg = mean(IS_positions_avg$LRI_avg_all, na.rm = TRUE)
@@ -762,6 +773,17 @@ M_t_analyte_withIS <- M_t_analyte_withIS %>%
 
 IS_problems <- M_t_analyte_withIS %>% 
   filter(is.na(vol_is_normnorm))
+
+IS_problems_long <- M_t_analyte_withIS %>% 
+  filter(is.na(IS_vol1)|is.na(IS_vol2)|is.na(IS_vol3))
+
+IS_assignments <- M_t_analyte_withIS %>% 
+  dplyr::select(Compound.Name, IS_appropriate1,IS_mean_norm1, IS_appropriate2, IS_mean_norm2,
+                IS_appropriate3,  IS_mean_norm3) %>% 
+  group_by(Compound.Name, IS_appropriate1, IS_appropriate2, IS_appropriate3) %>% 
+  summarize(IS_mean_norm1.n = mean(IS_mean_norm1), IS_mean_norm2.n = mean(IS_mean_norm2), 
+            IS_mean_norm3.n = mean(IS_mean_norm3))
+  
 ```
 ```{r}
 M_t_analyte_unique_IS <- M_t_analyte_withIS
@@ -995,7 +1017,7 @@ cat.j <- cat %>%
 real_cc_avg.c <- real_cc_avg %>% 
   left_join(cat.j)
 
-#write.csv(real_cc_avg.c, "Files/CC_slopes_categories_for_curve.csv")
+write.csv(real_cc_avg.c, "Files/Write/CC_slopes_categories_for_curve2.csv")
 
 real_cc_avg %>% 
   left_join(cat) %>% 
@@ -1018,10 +1040,10 @@ Cat.ms.all.q <- cat %>%
  
 for(i in 1:nrow(Cat.ms.all.q)){
   lri = Cat.ms.all.q$d_alkane_RTI[i]
-  if(lri<1862){
-    Cat.ms.all.q$RTI.transform[i] = (0.00000115*exp(0.0115*lri))
+  if(lri<1870){
+    Cat.ms.all.q$RTI.transform[i] = (0.0000074*exp(0.0105*lri))
   }else{
-    Cat.ms.all.q$RTI.transform[i] = (33600*exp(lri*-.00144))
+    Cat.ms.all.q$RTI.transform[i] = (37900*exp(lri*-.00147))
   }
 }
 
@@ -1031,6 +1053,10 @@ Cat.ms.all.q <- Cat.ms.all.q %>%
 
 Cat.ms.all.q %>% 
   ggplot(aes(x = d_alkane_RTI, y = slope.i.q, color = Category))+
+  geom_point()
+
+Cat.ms.all.q %>% 
+  ggplot(aes(x = d_alkane_RTI, y = log(slope.i.q), color = Category))+
   geom_point()
 
 Cat.ms.all.q.rti <- Cat.ms.all.q %>% 
@@ -1135,6 +1161,11 @@ Evaluating performance
 summary(Quant.mod.test.t.2$slope_pct_err)
 summary(Quant.mod.test.t.2$slope_pct_err.a)
 
+mae(Quant.mod.test.t.2$slope.avg, Quant.mod.test.t.2$slope.avg.p)
+#dont know why this is returning NA
+OSR2(Quant.mod.test.t.2$slope.avg.p, Quant.mod.train$slope.avg,
+     Quant.mod.test.t.2$slope.avg)
+
 prob.inspect <- Quant.mod.test.t.2 %>% 
   filter(slope_pct_err > 100 | slope_pct_err < -50) %>% 
   dplyr::select(Compound.Name, Category, d_alkane_RTI, RT2, slope_pct_err)
@@ -1152,7 +1183,9 @@ Quant.mod.test.t.2 %>%
   geom_point()
 
 Quant.mod.test.t.3 <- Quant.mod.test.t.2 %>% 
-  filter(d_alkane_RTI > 1500)
+  #filter(Compound.Name != "pyrene") %>% 
+  filter(d_alkane_RTI > 1500) 
+  
 
 mae(Quant.mod.test.t.3$slope.avg, Quant.mod.test.t.3$slope.avg.p)
 #dont know why this is returning NA
@@ -1162,6 +1195,13 @@ OSR2(Quant.mod.test.t.3$slope.avg.p, Quant.mod.train$slope.avg,
 summary(Quant.mod.test.t.3$slope_pct_err)
 summary(Quant.mod.test.t.3$slope_pct_err.a)
 
+Quant.mod.test.t.3 %>% 
+  ggplot(aes(x = slope.i.q, y = slope.i.q.p, color = slope_pct_err))+
+  geom_point()
+
+Quant.mod.test.t.3 %>% 
+  ggplot(aes(x = slope.avg, y = slope.avg.p, color = slope_pct_err))+
+  geom_point()
 
 ```
 From this, it appears that quantification is working well above retention index of 1500, now we identify whether this is an acceptable approach 
@@ -1361,12 +1401,13 @@ SS_table_formod <- SS_table_o %>%
 for(i in 1:nrow(SS_table_formod
 )){
   lri = SS_table_formod$d_alkane_RTI[i]
-  if(lri<1862){
-    SS_table_formod$RTI.transform[i] = (0.00000115*exp(0.0115*lri))
+  if(lri<1870){
+    SS_table_formod$RTI.transform[i] = (0.0000074*exp(0.0105*lri))
   }else{
-    SS_table_formod$RTI.transform[i] = (33600*exp(lri*-.00144))
+    SS_table_formod$RTI.transform[i] = (37900*exp(lri*-.00147))
   }
 }
+
 
 SS_table_formod.t <- SS_table_formod %>% 
   dplyr::select(-c(Compound.Name, RTI.transform)) %>% 
@@ -1416,7 +1457,7 @@ for(i in 1:nrow(SS_sample_quant)){
 
 
 
-write.csv(SS_sample_quant, "Files/Write/Compiled_Compound_info_SeaScape.quant_EBF.csv")
+write.csv(SS_sample_quant, "Files/Write/Compiled_Compound_info_SeaScape.quant_EBF_3.csv")
 
 
 ```
