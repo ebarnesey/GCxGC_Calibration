@@ -1037,7 +1037,7 @@ Cat.ms.all.q <- cat %>%
   dplyr::mutate(RTI.transform = NA) %>% 
   filter(!is.na(d_alkane_RTI)) # note that this removes C7 acid from analysis
   
- 
+ # this is where we are normalizing by the avg volatility curve
 for(i in 1:nrow(Cat.ms.all.q)){
   lri = Cat.ms.all.q$d_alkane_RTI[i]
   if(lri<1870){
@@ -1077,10 +1077,23 @@ normc <- Cat.ms.all.q.rti %>%
 
 normc
 
-# png("normcurve.png", width=7.5, height=4,
+normc.p <- Cat.ms.all.q.rti %>% 
+  ggplot(aes(x = d_alkane_RTI, y = RTI.transform, color = "Response \nNormalization Curve"))+
+  geom_line(size = 2)+
+  geom_point(data = Cat.ms.all.q, aes(x = d_alkane_RTI, y = 1/slope.avg, fill = "External\nStandard\nCompounds"), shape = 21)+
+  geom_line(aes(x = d_alkane_RTI, y = RTI.transform), color = "black", size = 2)+
+  xlab("Retention Index")+
+  ylab("Response Factor")+
+  scale_color_manual(name = "", values = "black")+
+  scale_fill_brewer(name = "", palette="Set1")+
+  theme_bw(base_size = 14)
+
+normc.p
+
+# png("normcurve.p.png", width=7.5, height=4,
 #     units="in", res=1000, pointsize=5)
-# normc
-# dev.off()  
+# normc.p
+# dev.off()
 
 
 Cat.ms.all.q.mod <- Cat.ms.all.q 
@@ -1161,10 +1174,21 @@ Evaluating performance
 summary(Quant.mod.test.t.2$slope_pct_err)
 summary(Quant.mod.test.t.2$slope_pct_err.a)
 
+#geo_mean_er <- exp(mean(log(Quant.mod.test.t.2$slope_pct_err)))  
+geo_mean_er.a <- exp(mean(log(Quant.mod.test.t.2$slope_pct_err.a)))
+
+performance.p1 <- Quant.mod.test.t.2 %>% ggplot()+
+  geom_boxplot(aes(x = "Error Distribution", y = slope_pct_err))+
+  geom_boxplot(aes(x = "Absolute\n Error Distribution", y = slope_pct_err.a))+
+  ylab("% error")
+
+performance.p1
+
 mae(Quant.mod.test.t.2$slope.avg, Quant.mod.test.t.2$slope.avg.p)
 #dont know why this is returning NA
 OSR2(Quant.mod.test.t.2$slope.avg.p, Quant.mod.train$slope.avg,
      Quant.mod.test.t.2$slope.avg)
+RMSE(Quant.mod.test.t.2$slope.avg.p, Quant.mod.test.t.2$slope.avg)
 
 prob.inspect <- Quant.mod.test.t.2 %>% 
   filter(slope_pct_err > 100 | slope_pct_err < -50) %>% 
@@ -1182,6 +1206,9 @@ Quant.mod.test.t.2 %>%
   ggplot(aes(x = slope.i.q, y = slope.i.q.p, color = slope_pct_err))+
   geom_point()
 
+summary(Quant.mod.test.t.2$slope_pct_err)
+summary(Quant.mod.test.t.2$slope_pct_err.a)
+
 Quant.mod.test.t.3 <- Quant.mod.test.t.2 %>% 
   #filter(Compound.Name != "pyrene") %>% 
   filter(d_alkane_RTI > 1500) 
@@ -1191,17 +1218,60 @@ mae(Quant.mod.test.t.3$slope.avg, Quant.mod.test.t.3$slope.avg.p)
 #dont know why this is returning NA
 OSR2(Quant.mod.test.t.3$slope.avg.p, Quant.mod.train$slope.avg,
      Quant.mod.test.t.3$slope.avg)
+RMSE(Quant.mod.test.t.3$slope.avg.p, Quant.mod.test.t.3$slope.avg)
 
 summary(Quant.mod.test.t.3$slope_pct_err)
 summary(Quant.mod.test.t.3$slope_pct_err.a)
+
+geo_mean_er.a3 <- exp(mean(log(Quant.mod.test.t.3$slope_pct_err.a)))
 
 Quant.mod.test.t.3 %>% 
   ggplot(aes(x = slope.i.q, y = slope.i.q.p, color = slope_pct_err))+
   geom_point()
 
-Quant.mod.test.t.3 %>% 
+line <- data.frame(x = c(0, .01), y = c(0, .01))
+
+qf.p <- Quant.mod.test.t.3 %>% 
   ggplot(aes(x = slope.avg, y = slope.avg.p, color = slope_pct_err))+
-  geom_point()
+  geom_point(size = 2, shape =16)+
+  geom_point(aes(x = slope.avg, y = slope.avg.p), size = 2, shape = 1, color = "black")+
+  geom_line(data = line, aes(x = x, y = y), color = "black")+
+  theme_bw(base_size = 14)+
+  theme(legend.key.size = unit(.4, 'cm'))+
+  xlab("True Quantification Factor")+
+  ylab("Predicted Quantification Factor")+
+  lims(colour = c(-100, 450))+
+  scale_color_gradient2(name = "% error", high = "green4", low = "red4", mid = "yellow")
+
+qf.p
+
+png("qf.p.png", width=5.5, height=4,
+    units="in", res=1000, pointsize=5)
+qf.p
+dev.off()
+
+line2 <- data.frame(x = c(-8.9, -1), y = c(-8.9, -1))
+
+qf.p2 <- Quant.mod.test.t.2 %>% 
+  ggplot(aes(x = log(slope.avg), y = log(slope.avg.p), color = slope_pct_err))+
+  geom_point(size = 2, shape =16)+
+  geom_point(aes(x = log(slope.avg), y = log(slope.avg.p)), size = 2, shape = 1, color = "black")+
+  geom_line(data = line2, aes(x = x, y = y), color = "black")+
+  theme_bw(base_size = 14)+
+  theme(legend.key.size = unit(.4, 'cm'))+
+  xlab("log(True Quantification Factor)")+
+  ylab("log(Predicted Quantification Factor)")+
+  lims(colour = c(-100, 450))+
+  xlim(-9, -1)+
+  ylim(-9, -1)+
+  scale_color_gradient2(name = "% error", high = "green4", low = "red4", mid = "yellow")
+
+qf.p2
+
+png("qf.p2.png", width=5.5, height=4,
+    units="in", res=1000, pointsize=5)
+qf.p2
+dev.off()
 
 ```
 From this, it appears that quantification is working well above retention index of 1500, now we identify whether this is an acceptable approach 
@@ -1352,7 +1422,7 @@ arranged_mz.s <- SS_table_trimmed %>%
   dplyr::mutate(loss_fast = 0)
 
 for(i in 2:nrow(arranged_mz.s)){
-  arranged_mz.s$loss_fast[i]= arranged_mz.s$mz[i-1]-arranged_mz$mz[i]
+  arranged_mz.s$loss_fast[i]= arranged_mz.s$mz[i-1]-arranged_mz.s$mz[i]
 }
 
 arranged_mz.t.s <- as.data.frame(table(arranged_mz.s$loss_fast)) %>% 
